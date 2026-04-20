@@ -1,5 +1,7 @@
 package com.seafile.seadroid2.framework.model.sdoc;
 
+import org.apache.commons.lang3.StringUtils;
+
 public class TextTypeModel {
     /**
      * undo
@@ -13,6 +15,9 @@ public class TextTypeModel {
     public String type;
 
     public TextTypeModel(String type) {
+        if (StringUtils.equals("local_image", type)) {
+            type = "local-image";
+        }
         this.type = type;
     }
 }

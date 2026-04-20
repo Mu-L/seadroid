@@ -66,7 +66,7 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
     public static final String TAG = "Foreground-Thread-Uploader";//ParentEventUploader
     private static final long CHUNK_SIZE_BYTES = 8 * 1024 * 1024L; // 8MB
     private static final long CHUNK_TRIGGER_SIZE_BYTES = 1024 * 1024 * 1024L; // 1GB
-    private static final long CHUNK_UPLOAD_READ_TIMEOUT_SECONDS = 600L;
+    private static final long CHUNK_UPLOAD_READ_TIMEOUT_SECONDS = 600L; // 10 min
 
     public ParentEventUploader(Context context, ITransferNotification n) {
         super(context, n);
@@ -282,6 +282,7 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
                         source.uploadFile, source.uploadUri, source.uploadFromUri, chunkNumber, totalChunks, chunkUploadUrl);
             }
         } else {
+            SafeLogs.d(TAG, "transferFile()", "no chunked");
             uploadSingleChunk(account, source.createdTime, 0, source.fileSize, source.fileSize, source.fileSize, false, true,
                     source.uploadFile, source.uploadUri, source.uploadFromUri, 1, 1, uploadUrl);
         }
@@ -343,7 +344,8 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
      * - file size must be known<br>
      * - file size must be larger than CHUNK_TRIGGER_SIZE_BYTES<br>
      * - uri must be able to seek<br>
-     * */
+     *
+     */
     private boolean shouldUseChunkedUpload(@NonNull UploadSource source) {
         boolean hasKnownLength = source.fileSize > 0;
         boolean useChunkedUpload = hasKnownLength && source.fileSize > CHUNK_TRIGGER_SIZE_BYTES;
