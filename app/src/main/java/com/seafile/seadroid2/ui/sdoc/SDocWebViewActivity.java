@@ -153,7 +153,7 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         initData();
 
         initView();
-        initDropdownView();
+        initEditorBarView();
 
         registerActivityLauncher();
 
@@ -328,6 +328,9 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         multiFileAndImageChooserLauncher = registerForActivityResult(new ActivityResultContracts.OpenMultipleDocuments(), new ActivityResultCallback<List<Uri>>() {
             @Override
             public void onActivityResult(List<Uri> uris) {
+
+                webviewCanPause = true;
+
                 if (CollectionUtils.isEmpty(uris)) {
                     return;
                 }
@@ -363,7 +366,7 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         });
     }
 
-    private void initDropdownView() {
+    private void initEditorBarView() {
         editorBarBinding.editorUndoContainer.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -397,6 +400,7 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         editorBarBinding.editorLocalImageIcon.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                webviewCanPause = false;
                 insertImage();
             }
         });
@@ -1192,19 +1196,29 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         });
     }
 
+    private boolean webviewCanPause = true;
+
     @Override
     protected void onPause() {
         super.onPause();
-        if (mWebView != null) {
-            mWebView.onPause();
+        SLogs.e("webview onPause, webviewCanPause = " + webviewCanPause);
+        if (webviewCanPause) {
+            if (mWebView != null) {
+                mWebView.onPause();
+            }
         }
+
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        if (mWebView != null) {
-            mWebView.onResume();
+
+        SLogs.e("webview onStart, webviewCanPause = " + webviewCanPause);
+        if (webviewCanPause) {
+            if (mWebView != null) {
+                mWebView.onResume();
+            }
         }
     }
 
