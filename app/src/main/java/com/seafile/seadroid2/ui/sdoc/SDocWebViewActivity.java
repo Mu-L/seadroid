@@ -4,7 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
-import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -28,6 +28,9 @@ import android.webkit.WebView;
 import android.widget.LinearLayout;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
@@ -46,7 +49,6 @@ import com.blankj.utilcode.util.CollectionUtils;
 import com.blankj.utilcode.util.GsonUtils;
 import com.blankj.utilcode.util.KeyboardUtils;
 import com.blankj.utilcode.util.NetworkUtils;
-import com.bumptech.glide.load.ResourceDecoder;
 import com.github.lzyzsd.jsbridge.CallBackFunction;
 import com.seafile.seadroid2.R;
 import com.seafile.seadroid2.account.Account;
@@ -55,7 +57,6 @@ import com.seafile.seadroid2.config.WebViewActionConstant;
 import com.seafile.seadroid2.databinding.ActivitySeaWebviewProBinding;
 import com.seafile.seadroid2.databinding.LayoutSdocBottomBarBinding;
 import com.seafile.seadroid2.databinding.LayoutSdocEditorBar2Binding;
-import com.seafile.seadroid2.databinding.LayoutSdocEditorBarBinding;
 import com.seafile.seadroid2.databinding.ToolbarActionbarProgressBarBinding;
 import com.seafile.seadroid2.enums.TextTypeEnum;
 import com.seafile.seadroid2.framework.db.entities.PermissionEntity;
@@ -66,10 +67,12 @@ import com.seafile.seadroid2.framework.model.sdoc.OutlineItemModel;
 import com.seafile.seadroid2.framework.model.sdoc.SDocPageOptionsModel;
 import com.seafile.seadroid2.framework.model.sdoc.TextTypeModel;
 import com.seafile.seadroid2.framework.model.sdoc.UndoRedoModel;
+import com.seafile.seadroid2.framework.model.sdoc.UploadSdocImageResultModel;
 import com.seafile.seadroid2.framework.util.SLogs;
 import com.seafile.seadroid2.framework.util.SafeLogs;
 import com.seafile.seadroid2.framework.util.StringUtils;
 import com.seafile.seadroid2.framework.util.Toasts;
+import com.seafile.seadroid2.framework.util.Utils;
 import com.seafile.seadroid2.listener.Callback;
 import com.seafile.seadroid2.listener.OnItemClickListener;
 import com.seafile.seadroid2.ui.base.BaseActivityWithVM;
@@ -97,6 +100,9 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
     private PermissionEntity repoPermission;
 
     private SDocPageOptionsModel pageOptionsData;
+
+    private ActivityResultLauncher<String[]> multiFileAndImageChooserLauncher;
+
 
     public static void openSdoc(Context context, String repoName, String repoID, String path, String name, boolean canNotEdit) {
         Intent intent = new Intent(context, SDocWebViewActivity.class);
@@ -148,6 +154,8 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
 
         initView();
         initDropdownView();
+
+        registerActivityLauncher();
 
         adaptInputMethod();
 
@@ -316,6 +324,51 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         });
     }
 
+    private void registerActivityLauncher() {
+        multiFileAndImageChooserLauncher = registerForActivityResult(new ActivityResultContracts.OpenMultipleDocuments(), new ActivityResultCallback<List<Uri>>() {
+            @Override
+            public void onActivityResult(List<Uri> uris) {
+                if (CollectionUtils.isEmpty(uris)) {
+                    return;
+                }
+
+
+                String imageUploadUrl = Utils.pathJoin("/api/v2.1/seadoc/upload-image/", pageOptionsData.docUuid, "/");
+                if (org.apache.commons.lang3.StringUtils.isEmpty(imageUploadUrl)) {
+                    return;
+                }
+
+                getViewModel().uploadImageToSDoc(imageUploadUrl, pageOptionsData.seadocAccessToken, uris);
+            }
+        });
+    }
+
+    private void initViewModel() {
+        getViewModel().getSecondRefreshLiveData().observe(this, new Observer<Boolean>() {
+            @Override
+            public void onChanged(Boolean aBoolean) {
+                showLoadingDialog(aBoolean);
+            }
+        });
+
+        getViewModel().getFileDetailLiveData().observe(this, new Observer<FileProfileConfigModel>() {
+            @Override
+            public void onChanged(FileProfileConfigModel configModel) {
+
+                FileProfileDialog dialog = FileProfileDialog.newInstance(configModel);
+                dialog.show(getSupportFragmentManager(), FileProfileDialog.class.getSimpleName());
+            }
+        });
+
+        getViewModel().getUploadImageResultIntoSdocLiveData().observe(this, new Observer<List<UploadSdocImageResultModel>>() {
+            @Override
+            public void onChanged(List<UploadSdocImageResultModel> uploadSdocImageResultModels) {
+                TextTypeModel tm = new TextTypeModel(TextTypeEnum.local_image.name(), uploadSdocImageResultModels);
+                triggerJsSdocEditorMenu(tm);
+            }
+        });
+    }
+
     private void initDropdownView() {
         editorBarBinding.editorUndoContainer.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -350,9 +403,10 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         editorBarBinding.editorLocalImageIcon.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                triggerJsSdocEditorMenu(TextTypeEnum.local_image);
+                insertImage();
             }
         });
+
         editorBarBinding.editorTextStyleContainer.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -375,6 +429,18 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
             @Override
             public void onClick(View v) {
                 KeyboardUtils.hideSoftInput(SDocWebViewActivity.this);
+            }
+        });
+    }
+
+    private void insertImage() {
+//        triggerJsSdocEditorMenu(TextTypeEnum.local_image);
+        readSDocPageOptionsData(new Consumer<SDocPageOptionsModel>() {
+            @Override
+            public void accept(SDocPageOptionsModel sDocPageOptionsModel) {
+
+                String[] mimeTypes = new String[]{"image/*"};
+                multiFileAndImageChooserLauncher.launch(mimeTypes);
             }
         });
     }
@@ -735,23 +801,6 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         }
     }
 
-    private void initViewModel() {
-        getViewModel().getSecondRefreshLiveData().observe(this, new Observer<Boolean>() {
-            @Override
-            public void onChanged(Boolean aBoolean) {
-                showLoadingDialog(aBoolean);
-            }
-        });
-
-        getViewModel().getFileDetailLiveData().observe(this, new Observer<FileProfileConfigModel>() {
-            @Override
-            public void onChanged(FileProfileConfigModel configModel) {
-
-                FileProfileDialog dialog = FileProfileDialog.newInstance(configModel);
-                dialog.show(getSupportFragmentManager(), FileProfileDialog.class.getSimpleName());
-            }
-        });
-    }
 
     private MenuItem editMenuItem;
     //

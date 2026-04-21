@@ -1,5 +1,7 @@
 package com.seafile.seadroid2.framework.http;
 
+import androidx.annotation.Nullable;
+
 import com.blankj.utilcode.util.CloneUtils;
 import com.seafile.seadroid2.account.Account;
 import com.seafile.seadroid2.account.SupportAccountManager;
@@ -28,31 +30,41 @@ public class HttpManager {
         IO_MAP.remove(account.getSignature());
     }
 
+    @Nullable
+    public static HttpIO getCurrentLoggedHttp() {
+        return getCurrentIO();
+    }
+
     public static HttpIO getCurrentHttp() {
+        HttpIO httpIO = getCurrentIO();
+        if (httpIO == null) {
+            throw new IllegalStateException("No user logged in");
+        }
+
+        return httpIO;
+    }
+
+    @Nullable
+    private static HttpIO getCurrentIO() {
         HttpIO httpIO = IO_MAP.get(CURRENT_ACCOUNT_HTTP_KEY);
         if (httpIO != null) {
             return httpIO;
         }
 
         synchronized (HttpManager.class) {
-            httpIO = IO_MAP.get(CURRENT_ACCOUNT_HTTP_KEY);
-            if (httpIO != null) {
-                return httpIO;
-            }
-
             Account curAccount = SupportAccountManager.getInstance().getCurrentAccount();
             if (curAccount == null) {
-                throw new IllegalStateException("IO instance(): No current account");
+                return null;
             }
-            
-            httpIO = new HttpIO(curAccount);
-            IO_MAP.put(CURRENT_ACCOUNT_HTTP_KEY, httpIO);
-            return httpIO;
+
+            HttpIO io = new HttpIO(curAccount);
+            IO_MAP.put(CURRENT_ACCOUNT_HTTP_KEY, io);
+            return io;
         }
     }
 
     /**
-     * Not logged in/Log in to another server
+     * Not Logged/Log in to another server
      */
     public static HttpIO getHttpWithAccount(Account account) {
         if (account == null) {
@@ -61,24 +73,24 @@ public class HttpManager {
 
         // Not logged in
         if (!IO_MAP.containsKey(account.getSignature())) {
-            return updateHttp(account);
+            return resetHttpIo(account);
         }
 
         HttpIO httpIo = IO_MAP.get(account.getSignature());
         if (httpIo == null) {
-            return updateHttp(account);
+            return resetHttpIo(account);
         }
 
         if (!Objects.equals(httpIo.getAccount(), account)) {
-            return updateHttp(account);
+            return resetHttpIo(account);
         }
 
         return httpIo;
 
     }
 
-    private static HttpIO updateHttp(Account account) {
-        Account newAccount = CloneUtils.deepClone(account, Account.class);
+    private static HttpIO resetHttpIo(Account account) {
+        Account newAccount = CloneUtils.deepClone(account, Account.class);// deep clone
         HttpIO httpIo = new HttpIO(newAccount);
         IO_MAP.put(newAccount.getSignature(), httpIo);
         return httpIo;
