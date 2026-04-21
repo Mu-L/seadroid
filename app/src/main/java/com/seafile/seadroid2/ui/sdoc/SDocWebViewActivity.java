@@ -332,13 +332,7 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
                     return;
                 }
 
-
-                String imageUploadUrl = Utils.pathJoin("/api/v2.1/seadoc/upload-image/", pageOptionsData.docUuid, "/");
-                if (org.apache.commons.lang3.StringUtils.isEmpty(imageUploadUrl)) {
-                    return;
-                }
-
-                getViewModel().uploadImageToSDoc(imageUploadUrl, pageOptionsData.seadocAccessToken, uris);
+                getViewModel().uploadImageToSDoc(pageOptionsData.docUuid, pageOptionsData.seadocAccessToken, uris);
             }
         });
     }

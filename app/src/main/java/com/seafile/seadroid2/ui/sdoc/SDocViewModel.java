@@ -305,13 +305,11 @@ public class SDocViewModel extends BaseViewModel {
         });
     }
 
-    public void uploadImageToSDoc(String uploadUrl, String seadocAccessToken, List<Uri> uris) {
+    public void uploadImageToSDoc(String sdocUUid, String seadocAccessToken, List<Uri> uris) {
         getSecondRefreshLiveData().setValue(true);
 
         String server = HttpManager.getCurrentHttp().getCurrentServer();
-        if (!uploadUrl.endsWith("/")) {
-            uploadUrl = Utils.pathJoin(server, uploadUrl, "/");
-        }
+        String uploadUrl = Utils.pathJoin(server, "/api/v2.1/seadoc/upload-image/", sdocUUid, "/");
 
 
         List<Single<UploadSdocImageResultModel>> uploadSingles = new ArrayList<>();
@@ -334,7 +332,9 @@ public class SDocViewModel extends BaseViewModel {
         }, throwable -> {
             SeafException seafException = ExceptionUtils.parseByThrowable(throwable);
             getSeafExceptionLiveData().setValue(seafException);
+            SLogs.e(seafException);
             getSecondRefreshLiveData().setValue(false);
+            Toasts.show(seafException.getMessage());
         });
     }
 
