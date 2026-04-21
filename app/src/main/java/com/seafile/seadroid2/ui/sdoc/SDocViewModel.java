@@ -338,7 +338,6 @@ public class SDocViewModel extends BaseViewModel {
         });
     }
 
-
     public Single<UploadSdocImageResultModel> uploadImage(String uploadUrl, String seadocAccessToken, Uri uri) {
         return Single.fromCallable(() -> {
             if (TextUtils.isEmpty(uploadUrl)) {

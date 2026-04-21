@@ -329,8 +329,6 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
             @Override
             public void onActivityResult(List<Uri> uris) {
 
-                webviewCanPause = true;
-
                 if (CollectionUtils.isEmpty(uris)) {
                     return;
                 }
@@ -400,7 +398,6 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
         editorBarBinding.editorLocalImageIcon.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                webviewCanPause = false;
                 insertImage();
             }
         });
@@ -432,7 +429,8 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
     }
 
     private void insertImage() {
-//        triggerJsSdocEditorMenu(TextTypeEnum.local_image);
+        KeyboardUtils.hideSoftInput(this);
+
         readSDocPageOptionsData(new Consumer<SDocPageOptionsModel>() {
             @Override
             public void accept(SDocPageOptionsModel sDocPageOptionsModel) {
@@ -904,10 +902,10 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
     private final Runnable timeoutRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!jsCallbackReceived) { // 检查回调是否已收到
+            if (!jsCallbackReceived) { //
                 SLogs.d(TAG, "callJsSdocEditorEnitable() - Timeout occurred!");
-                Toasts.showShort(R.string.not_supported_feature);
-                jsCallbackReceived = true; // 标记已收到回调
+                Toasts.showShort(R.string.operation_timeout);
+                jsCallbackReceived = true; //
 
                 //
                 if (editMenuItem != null) {
@@ -1184,41 +1182,6 @@ public class SDocWebViewActivity extends BaseActivityWithVM<SDocViewModel> {
     private void hideProgressBar() {
         if (curProgress == 100) {
             toolBinding.toolProgressBar.setVisibility(View.GONE);
-        }
-    }
-
-    private void canLoadPageConfigData() {
-        readSDocPageOptionsData(new Consumer<SDocPageOptionsModel>() {
-            @Override
-            public void accept(SDocPageOptionsModel model) {
-                getViewModel().loadFileDetail(repoId, path);
-            }
-        });
-    }
-
-    private boolean webviewCanPause = true;
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        SLogs.e("webview onPause, webviewCanPause = " + webviewCanPause);
-        if (webviewCanPause) {
-            if (mWebView != null) {
-                mWebView.onPause();
-            }
-        }
-
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-
-        SLogs.e("webview onStart, webviewCanPause = " + webviewCanPause);
-        if (webviewCanPause) {
-            if (mWebView != null) {
-                mWebView.onResume();
-            }
         }
     }
 
