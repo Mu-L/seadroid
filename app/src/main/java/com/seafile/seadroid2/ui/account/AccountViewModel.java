@@ -189,6 +189,9 @@ public class AccountViewModel extends BaseViewModel {
         return HttpManager.getHttpWithAccount(tempAccount).execute(AccountService.class).login(headers, requestBody);
     }
 
+    /**
+     * NOTE: This method must be called after the login is complete.
+     * */
     public void getServerInfo() {
         getRefreshLiveData().setValue(true);
 

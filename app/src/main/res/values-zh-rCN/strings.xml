@@ -160,6 +160,7 @@
   <string name="not_supported">暂未支持</string>
   <string name="not_supported_share">不支持此类分享</string>
   <string name="not_supported_feature">尚未支持此功能，请升级服务器版本。</string>
+  <string name="operation_timeout">操作已超时</string>
   <string name="edit">编辑</string>
   <string name="select">选择</string>
   <string name="create_draft">创建草稿</string>

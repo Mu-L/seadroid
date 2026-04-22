@@ -1,5 +1,8 @@
 package com.seafile.seadroid2.ui.sdoc;
 
+import android.content.ContentResolver;
+import android.content.Context;
+import android.net.Uri;
 import android.text.TextUtils;
 import android.util.Pair;
 
@@ -8,6 +11,7 @@ import androidx.lifecycle.MutableLiveData;
 import com.blankj.utilcode.util.CloneUtils;
 import com.blankj.utilcode.util.CollectionUtils;
 import com.blankj.utilcode.util.GsonUtils;
+import com.seafile.seadroid2.SeadroidApplication;
 import com.seafile.seadroid2.SeafException;
 import com.seafile.seadroid2.account.Account;
 import com.seafile.seadroid2.account.SupportAccountManager;
@@ -23,14 +27,19 @@ import com.seafile.seadroid2.framework.model.sdoc.OptionTagModel;
 import com.seafile.seadroid2.framework.model.sdoc.OutlineItemModel;
 import com.seafile.seadroid2.framework.model.sdoc.SDocOutlineWrapperModel;
 import com.seafile.seadroid2.framework.model.sdoc.SDocPageOptionsModel;
+import com.seafile.seadroid2.framework.model.sdoc.UploadSdocImageResultModel;
 import com.seafile.seadroid2.framework.model.user.UserModel;
+import com.seafile.seadroid2.framework.util.ContentResolvers;
 import com.seafile.seadroid2.framework.util.ExceptionUtils;
 import com.seafile.seadroid2.framework.util.Objs;
 import com.seafile.seadroid2.framework.util.SLogs;
 import com.seafile.seadroid2.framework.util.StringUtils;
 import com.seafile.seadroid2.framework.util.Toasts;
+import com.seafile.seadroid2.framework.util.Utils;
 import com.seafile.seadroid2.ui.docs_comment.DocsCommentService;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,11 +51,23 @@ import java.util.stream.Collectors;
 import io.reactivex.Single;
 import io.reactivex.SingleSource;
 import io.reactivex.functions.Consumer;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 public class SDocViewModel extends BaseViewModel {
     private final MutableLiveData<Pair<String, List<UserModel>>> _onUserSelectedLiveData = new MutableLiveData<>();
     private final MutableLiveData<Pair<String, List<OptionTagModel>>> _onTagSelectedLiveData = new MutableLiveData<>();
     private final MutableLiveData<Boolean> _onSaveLiveData = new MutableLiveData<>();
+    private final MutableLiveData<List<UploadSdocImageResultModel>> _uploadImageResultIntoSdocLiveData = new MutableLiveData<>();
+
+    public MutableLiveData<List<UploadSdocImageResultModel>> getUploadImageResultIntoSdocLiveData() {
+        return _uploadImageResultIntoSdocLiveData;
+    }
 
     public MutableLiveData<Boolean> getOnSaveLiveData() {
         return _onSaveLiveData;
@@ -129,7 +150,7 @@ public class SDocViewModel extends BaseViewModel {
     public void loadFileDetail(String repoId, String path) {
         getSecondRefreshLiveData().setValue(true);
 
-        Single<FileProfileConfigModel> s = Objs.getLoadFileDetailSingle(repoId,path);
+        Single<FileProfileConfigModel> s = Objs.getLoadFileDetailSingle(repoId, path);
 
         addSingleDisposable(s, new Consumer<FileProfileConfigModel>() {
             @Override
@@ -251,7 +272,7 @@ public class SDocViewModel extends BaseViewModel {
             singleList.add(recordSingle);
         }
 
-        if (singleList.isEmpty()){
+        if (singleList.isEmpty()) {
             return;
         }
 
@@ -280,6 +301,119 @@ public class SDocViewModel extends BaseViewModel {
                 SeafException seafException = ExceptionUtils.parseByThrowable(throwable);
                 getSeafExceptionLiveData().setValue(seafException);
                 getSecondRefreshLiveData().setValue(false);
+            }
+        });
+    }
+
+    public void uploadImageToSDoc(String sdocUUid, String seadocAccessToken, List<Uri> uris) {
+        getSecondRefreshLiveData().setValue(true);
+
+        String server = HttpManager.getCurrentHttp().getCurrentServer();
+        String uploadUrl = Utils.pathJoin(server, "/api/v2.1/seadoc/upload-image/", sdocUUid, "/");
+
+
+        List<Single<UploadSdocImageResultModel>> uploadSingles = new ArrayList<>();
+        for (Uri uri : uris) {
+            Single<UploadSdocImageResultModel> uploadSingle = uploadImage(uploadUrl, seadocAccessToken, uri);
+            uploadSingles.add(uploadSingle);
+        }
+
+        Single<List<UploadSdocImageResultModel>> zipSingle = Single.zip(uploadSingles, objects -> {
+            List<UploadSdocImageResultModel> results = new ArrayList<>();
+            for (Object obj : objects) {
+                results.add((UploadSdocImageResultModel) obj);
+            }
+            return results;
+        });
+
+        addSingleDisposable(zipSingle, results -> {
+            getSecondRefreshLiveData().setValue(false);
+            getUploadImageResultIntoSdocLiveData().setValue(results);
+        }, throwable -> {
+            SeafException seafException = ExceptionUtils.parseByThrowable(throwable);
+            getSeafExceptionLiveData().setValue(seafException);
+            SLogs.e(seafException);
+            getSecondRefreshLiveData().setValue(false);
+            Toasts.show(seafException.getMessage());
+        });
+    }
+
+    public Single<UploadSdocImageResultModel> uploadImage(String uploadUrl, String seadocAccessToken, Uri uri) {
+        return Single.fromCallable(() -> {
+            if (TextUtils.isEmpty(uploadUrl)) {
+                throw new IllegalArgumentException("uploadUrl is empty");
+            }
+            if (uri == null) {
+                throw new IllegalArgumentException("uri is null");
+            }
+
+
+            Context context = SeadroidApplication.getAppContext();
+            ContentResolver contentResolver = context.getContentResolver();
+            String fileName = ContentResolvers.getFileNameFromUri(contentResolver, uri);
+            if (TextUtils.isEmpty(fileName)) {
+                fileName = "upload.bin";
+            }
+
+            String mime = contentResolver.getType(uri);
+            if (TextUtils.isEmpty(mime)) {
+                mime = "application/octet-stream";
+            }
+            MediaType mediaType = MediaType.parse(mime);
+            if (mediaType == null) {
+                mediaType = MediaType.parse("application/octet-stream");
+            }
+
+            final MediaType finalMediaType = mediaType;
+
+            RequestBody fileBody = new RequestBody() {
+                @Override
+                public MediaType contentType() {
+                    return finalMediaType;
+                }
+
+                @Override
+                public void writeTo(okio.BufferedSink sink) throws IOException {
+                    try (InputStream inputStream = contentResolver.openInputStream(uri)) {
+                        if (inputStream == null) {
+                            throw new IOException("Failed to open input stream for uri: " + uri);
+                        }
+                        sink.writeAll(okio.Okio.source(inputStream));
+                    }
+                }
+            };
+
+            MultipartBody requestBody = new MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("file", fileName, fileBody)
+                    .build();
+
+            Request.Builder requestBuilder = new Request.Builder()
+                    .url(uploadUrl)
+                    .post(requestBody);
+
+            if (!TextUtils.isEmpty(seadocAccessToken)) {
+                requestBuilder.addHeader("Authorization", "Token " + seadocAccessToken);
+            }
+            requestBuilder.addHeader("Accept", "application/json");
+            requestBuilder.addHeader("charset", "utf-8");
+            requestBuilder.addHeader("timestamp", String.valueOf(System.currentTimeMillis()));
+
+            Request request = requestBuilder.build();
+
+            OkHttpClient.Builder builder = new OkHttpClient.Builder();
+            OkHttpClient okHttpClient = builder.build();
+
+            try (Response response = okHttpClient.newCall(request).execute()) {
+                int code = response.code();
+                try (ResponseBody responseBody = response.body()) {
+                    String body = responseBody != null ? responseBody.string() : "";
+                    if (!response.isSuccessful()) {
+                        throw new IOException("upload failed, code=" + code + ", body=" + body);
+                    }
+
+                    return GsonUtils.fromJson(body, UploadSdocImageResultModel.class);
+                }
             }
         });
     }

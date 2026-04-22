@@ -19,6 +19,8 @@ public class SDocPageOptionsModel implements Parcelable {
     public String latestContributorName;
     public String lastModificationTime;
 
+    public String assetsUrl;
+
     public boolean canUse() {
         if (TextUtils.isEmpty(seadocServerUrl)
                 || TextUtils.isEmpty(docUuid)

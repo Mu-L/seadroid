@@ -18,14 +18,16 @@ public class TokenInterceptor implements Interceptor {
 
     /**
      * user default account token
-     * */
+     *
+     */
     public TokenInterceptor() {
 
     }
 
     /**
      * user custom account token
-     * */
+     *
+     */
     public TokenInterceptor(String authToken) {
         this.authToken = authToken;
     }
@@ -44,7 +46,10 @@ public class TokenInterceptor implements Interceptor {
 
         //
         if (TextUtils.isEmpty(authToken)) {
-            authToken = HttpManager.getCurrentHttp().getCurrentToken();
+            HttpIO httpIO = HttpManager.getCurrentLoggedHttp();
+            if (httpIO != null) {
+                authToken = httpIO.getCurrentToken();
+            }
         }
 
         if (!TextUtils.isEmpty(authToken)) {
