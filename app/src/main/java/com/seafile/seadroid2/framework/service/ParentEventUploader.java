@@ -49,6 +49,9 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -233,7 +236,10 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
 
             sendProgressCompleteEvent(getFeatureDataSource(), currentTransferModel);
 
-        } catch (SeafException seafException) {
+        } catch (Exception e) {
+            SeafException seafException = e instanceof SeafException
+                    ? (SeafException) e
+                    : ExceptionUtils.parseByThrowable(e);
             // update db
             updateToFailed(seafException.getMessage());
 
@@ -419,12 +425,47 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
         MultipartBody.Builder builder = new MultipartBody.Builder();
         builder.setType(MultipartBody.FORM);
 
-        attachFilePart(builder, uploadFromUri, uploadUri, uploadFile, chunkedMode, offset, chunkSize, totalSize);
-        appendTargetPathParams(builder);
+        // build file form-data
+        String safeFileName = currentTransferModel.file_name;
+        if (uploadFromUri && uploadUri != null) {
+            if (chunkedMode) {
+                uriChunkRequestBody = new UriChunkRequestBody(getContext(), uploadUri, offset, chunkSize, totalSize, _fileTransferProgressListener);
+                builder.addFormDataPart("file", safeFileName, uriChunkRequestBody);
+            } else {
+                uriRequestBody = new UriStreamRequestBody(getContext(), uploadUri, totalSize, _fileTransferProgressListener);
+                builder.addFormDataPart("file", safeFileName, uriRequestBody);
+            }
+        } else {
+            if (uploadFile == null || !uploadFile.exists()) {
+                throw SeafException.NOT_FOUND_EXCEPTION;
+            }
+
+            if (chunkedMode) {
+                fileChunkRequestBody = new FileChunkRequestBody(uploadFile, offset, chunkSize, _fileTransferProgressListener);
+                builder.addFormDataPart("file", safeFileName, fileChunkRequestBody);
+            } else {
+                fileRequestBody = new FileStreamRequestBody(uploadFile, offset, chunkSize, _fileTransferProgressListener);
+                builder.addFormDataPart("file", safeFileName, fileRequestBody);
+            }
+        }
+
+
+        // build params
+        if (currentTransferModel.transfer_strategy == ExistingFileStrategy.REPLACE) {
+            builder.addFormDataPart("target_file", currentTransferModel.target_path);
+        } else {
+            builder.addFormDataPart("parent_dir", "/");
+            String dir = currentTransferModel.getParentPath();
+            dir = StringUtils.removeStart(dir, "/");
+            builder.addFormDataPart("relative_path", dir);
+        }
 
         if (chunkedMode) {
-            appendResumableParams(builder, chunkNumber, configuredChunkSize, chunkSize, totalSize,
-                    mimeType, resumableIdentifier, resumableRelativePath, totalChunks);
+            appendResumableParams(builder,
+                    chunkNumber, configuredChunkSize,
+                    chunkSize, totalSize,
+                    mimeType, resumableIdentifier,
+                    resumableRelativePath, totalChunks);
         }
 
         if (createdTime != -1) {
@@ -435,47 +476,30 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
         return builder.build();
     }
 
-    private void attachFilePart(@NonNull MultipartBody.Builder builder, boolean uploadFromUri, @Nullable Uri uploadUri,
-                                @Nullable File uploadFile, boolean chunkedMode, long offset, long chunkSize,
-                                long totalSize) throws SeafException {
-        if (uploadFromUri && uploadUri != null) {
-            if (chunkedMode) {
-                uriChunkRequestBody = new UriChunkRequestBody(getContext(), uploadUri, offset, chunkSize, totalSize, _fileTransferProgressListener);
-                builder.addFormDataPart("file", currentTransferModel.file_name, uriChunkRequestBody);
-            } else {
-                uriRequestBody = new UriStreamRequestBody(getContext(), uploadUri, totalSize, _fileTransferProgressListener);
-                builder.addFormDataPart("file", currentTransferModel.file_name, uriRequestBody);
-            }
-            return;
-        }
 
-        if (uploadFile == null || !uploadFile.exists()) {
-            throw SeafException.NOT_FOUND_EXCEPTION;
+    @NonNull
+    private String buildSafeFilename(@Nullable String fileName) throws SeafException {
+        if (TextUtils.isEmpty(fileName)) {
+            throw SeafException.NO_FILENAME_EXCEPTION;
         }
-        if (chunkedMode) {
-            fileChunkRequestBody = new FileChunkRequestBody(uploadFile, offset, chunkSize, _fileTransferProgressListener);
-            builder.addFormDataPart("file", currentTransferModel.file_name, fileChunkRequestBody);
-        } else {
-            fileRequestBody = new FileStreamRequestBody(uploadFile, offset, chunkSize, _fileTransferProgressListener);
-            builder.addFormDataPart("file", currentTransferModel.file_name, fileRequestBody);
+        String normalized = Normalizer.normalize(fileName, Normalizer.Form.NFD);
+        String encoded = URLEncoder.encode(normalized).replace("+", "%20");
+        if (TextUtils.isEmpty(encoded)) {
+            throw SeafException.NO_FILENAME_EXCEPTION;
         }
+        return encoded;
     }
 
-    private void appendTargetPathParams(@NonNull MultipartBody.Builder builder) {
-        if (currentTransferModel.transfer_strategy == ExistingFileStrategy.REPLACE) {
-            builder.addFormDataPart("target_file", currentTransferModel.target_path);
-            return;
-        }
-        builder.addFormDataPart("parent_dir", "/");
-        String dir = currentTransferModel.getParentPath();
-        dir = StringUtils.removeStart(dir, "/");
-        builder.addFormDataPart("relative_path", dir);
-    }
-
-    private void appendResumableParams(@NonNull MultipartBody.Builder builder, int chunkNumber, long configuredChunkSize,
-                                       long currentChunkSize, long totalSize, @NonNull String mimeType,
-                                       @NonNull String resumableIdentifier, @NonNull String resumableRelativePath,
+    private void appendResumableParams(@NonNull MultipartBody.Builder builder,
+                                       int chunkNumber,
+                                       long configuredChunkSize,
+                                       long currentChunkSize,
+                                       long totalSize,
+                                       @NonNull String mimeType,
+                                       @NonNull String resumableIdentifier,
+                                       @NonNull String resumableRelativePath,
                                        int totalChunks) {
+
         builder.addFormDataPart("resumableChunkNumber", String.valueOf(chunkNumber));
         builder.addFormDataPart("resumableChunkSize", String.valueOf(configuredChunkSize));
         builder.addFormDataPart("resumableCurrentChunkSize", String.valueOf(currentChunkSize));
@@ -488,13 +512,17 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
     }
 
     private Request buildUploadRequest(@NonNull String uploadUrl, @NonNull RequestBody requestBody, boolean chunkedMode,
-                                       long offset, long chunkSize, long totalSize) {
+                                       long offset, long chunkSize, long totalSize) throws SeafException {
         Request.Builder requestBuilder = new Request.Builder()
                 .url(uploadUrl)
                 .post(requestBody)
                 .addHeader("Connection", "keep-alive")
-                .addHeader("User-Agent", Constants.UA.SEAFILE_ANDROID_UA)
-                .addHeader("Content-Disposition", "attachment; filename=\"" + currentTransferModel.file_name + "\"");
+                .addHeader("User-Agent", Constants.UA.SEAFILE_ANDROID_UA);
+
+        if (chunkedMode) {
+            String safeFilename = buildSafeFilename(currentTransferModel.file_name);
+            requestBuilder.addHeader("Content-Disposition", "attachment; filename=\"" + safeFilename + "\"");
+        }
 
         if (chunkedMode && chunkSize > 0 && totalSize > 0) {
             requestBuilder.addHeader("Content-Range", "bytes " + offset + "-" + (offset + chunkSize - 1) + "/" + totalSize);
@@ -533,7 +561,7 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
     }
 
     @NonNull
-    private String resolveMimeType(@Nullable File uploadFile, @Nullable Uri uploadUri, boolean uploadFromUri) {
+    private String resolveMimeType(@Nullable File uploadFile, @Nullable Uri uploadUri, boolean uploadFromUri) throws SeafException {
         try {
             if (uploadFromUri && uploadUri != null) {
                 String mime = Utils.getMimeType(getContext(), uploadUri);
@@ -546,7 +574,8 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
                     return mime;
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            throw ExceptionUtils.parseByThrowable(e);
         }
         return Utils.MIME_APPLICATION_OCTET_STREAM;
     }
@@ -565,7 +594,7 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
      * jpeg to heic
      */
     @Nullable
-    private String convertJpegToHeicIfMotionPhoto() {
+    private String convertJpegToHeicIfMotionPhoto() throws SeafException {
         try {
             boolean isJpeg = Utils.isJpeg(currentTransferModel.file_name);
             if (!isJpeg) {
@@ -617,8 +646,8 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
             return outHeicPath;
         } catch (Exception e) {
             SafeLogs.e(e);
+            throw ExceptionUtils.parseByThrowable(e);
         }
-        return null;
     }
 
     public static int getSpecialSemanticPosition(List<MotionPhotoDescriptor.MotionPhotoItem> items, String semantic) {
@@ -691,10 +720,10 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
                         }
                     }
                     SafeLogs.d(TAG, "transferFile()", "chunk final response has no id, body: " + bodyStr);
-                    return null;
+                    throw SeafException.ILL_FORMAT_EXCEPTION;
                 } catch (JSONException e) {
                     SafeLogs.d(TAG, "transferFile()", "invalid chunk final response, body: " + bodyStr);
-                    return null;
+                    throw ExceptionUtils.parseByThrowable(e);
                 }
             } else {
                 throw ExceptionUtils.parseHttpException(code, bodyStr);
