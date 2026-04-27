@@ -236,7 +236,10 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
 
             sendProgressCompleteEvent(getFeatureDataSource(), currentTransferModel);
 
-        } catch (SeafException seafException) {
+        } catch (Exception e) {
+            SeafException seafException = e instanceof SeafException
+                    ? (SeafException) e
+                    : ExceptionUtils.parseByThrowable(e);
             // update db
             updateToFailed(seafException.getMessage());
 
@@ -510,13 +513,16 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
 
     private Request buildUploadRequest(@NonNull String uploadUrl, @NonNull RequestBody requestBody, boolean chunkedMode,
                                        long offset, long chunkSize, long totalSize) throws SeafException {
-        String safeFilename = buildSafeFilename(currentTransferModel.file_name);
         Request.Builder requestBuilder = new Request.Builder()
                 .url(uploadUrl)
                 .post(requestBody)
                 .addHeader("Connection", "keep-alive")
-                .addHeader("User-Agent", Constants.UA.SEAFILE_ANDROID_UA)
-                .addHeader("Content-Disposition", "attachment; filename=\"" + safeFilename + "\"");
+                .addHeader("User-Agent", Constants.UA.SEAFILE_ANDROID_UA);
+
+        if (chunkedMode) {
+            String safeFilename = buildSafeFilename(currentTransferModel.file_name);
+            requestBuilder.addHeader("Content-Disposition", "attachment; filename=\"" + safeFilename + "\"");
+        }
 
         if (chunkedMode && chunkSize > 0 && totalSize > 0) {
             requestBuilder.addHeader("Content-Range", "bytes " + offset + "-" + (offset + chunkSize - 1) + "/" + totalSize);
@@ -555,7 +561,7 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
     }
 
     @NonNull
-    private String resolveMimeType(@Nullable File uploadFile, @Nullable Uri uploadUri, boolean uploadFromUri) {
+    private String resolveMimeType(@Nullable File uploadFile, @Nullable Uri uploadUri, boolean uploadFromUri) throws SeafException {
         try {
             if (uploadFromUri && uploadUri != null) {
                 String mime = Utils.getMimeType(getContext(), uploadUri);
@@ -568,7 +574,8 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
                     return mime;
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            throw ExceptionUtils.parseByThrowable(e);
         }
         return Utils.MIME_APPLICATION_OCTET_STREAM;
     }
@@ -587,7 +594,7 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
      * jpeg to heic
      */
     @Nullable
-    private String convertJpegToHeicIfMotionPhoto() {
+    private String convertJpegToHeicIfMotionPhoto() throws SeafException {
         try {
             boolean isJpeg = Utils.isJpeg(currentTransferModel.file_name);
             if (!isJpeg) {
@@ -639,8 +646,8 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
             return outHeicPath;
         } catch (Exception e) {
             SafeLogs.e(e);
+            throw ExceptionUtils.parseByThrowable(e);
         }
-        return null;
     }
 
     public static int getSpecialSemanticPosition(List<MotionPhotoDescriptor.MotionPhotoItem> items, String semantic) {
@@ -713,10 +720,10 @@ public abstract class ParentEventUploader extends ParentEventTransfer {
                         }
                     }
                     SafeLogs.d(TAG, "transferFile()", "chunk final response has no id, body: " + bodyStr);
-                    return null;
+                    throw SeafException.ILL_FORMAT_EXCEPTION;
                 } catch (JSONException e) {
                     SafeLogs.d(TAG, "transferFile()", "invalid chunk final response, body: " + bodyStr);
-                    return null;
+                    throw ExceptionUtils.parseByThrowable(e);
                 }
             } else {
                 throw ExceptionUtils.parseHttpException(code, bodyStr);
