@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -47,20 +48,6 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
     public static final int SINGLE_SIGN_ON_LOGIN = 1;
     public static final int OTHER_SERVER = 2;
 
-    public final static String ARG_ACCOUNT_TYPE = "ACCOUNT_TYPE";
-    public final static String ARG_ACCOUNT_NAME = "ACCOUNT_NAME";
-    public final static String ARG_SERVER_URI = "SERVER_URI";
-    public final static String ARG_EDIT_OLD_ACCOUNT_NAME = "EDIT_OLD_ACCOUNT";
-    public final static String ARG_EMAIL = "EMAIL";
-    public final static String ARG_AVATAR_URL = "AVATAR_URL";
-    public final static String ARG_SPACE_TOTAL = "SPACE_TOTAL";
-    public final static String ARG_SPACE_USAGE = "SPACE_USAGE";
-    public final static String ARG_NAME = "NAME";
-    public final static String ARG_SHIB = "SHIB";
-    public final static String ARG_LOGIN_TIME = "LOGIN_TIME";
-    public final static String ARG_AUTH_SESSION_KEY = "TWO_FACTOR_AUTH";
-    public final static String ARG_IS_EDITING = "isEdited";
-
     private static final int REQ_SIGNUP = 1;
 
     private final String DEBUG_TAG = this.getClass().getSimpleName();
@@ -71,7 +58,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
      */
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        SLogs.d(DEBUG_TAG, "onCreate");
+        Log.d(DEBUG_TAG, "onCreate");
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.account_create_type_select);
@@ -81,9 +68,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
         activityLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), new ActivityResultCallback<ActivityResult>() {
             @Override
             public void onActivityResult(ActivityResult o) {
-                SLogs.d(DEBUG_TAG, "activity result returned: result=" + (o == null ? "null" : o.getResultCode()) + ", data=" + (o == null ? "null" : o.getData()));
                 if (o == null) {
-                    SLogs.w(DEBUG_TAG, "child activity returned null result, finishing authenticator activity");
                     finish();
                     return;
                 }
@@ -91,7 +76,6 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
                 if (o.getResultCode() == RESULT_OK) {
                     finishLogin(o.getData());
                 } else {
-                    SLogs.w(DEBUG_TAG, "child activity did not finish successfully, resultCode=" + o.getResultCode());
                     finish();
                 }
             }
@@ -127,7 +111,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
                 if (id == SEACLOUD_CC) {
                     intent = new Intent(SeafileAuthenticatorActivity.this, AccountDetailActivity.class);
                     intent.putExtras(getIntent());
-                    intent.putExtra(SeafileAuthenticatorActivity.ARG_SERVER_URI, getString(R.string.server_url_seacloud));
+                    intent.putExtra(Constants.AccountKeys.ARG_SERVER_URI, getString(R.string.server_url_seacloud));
                 } else if (id == SINGLE_SIGN_ON_LOGIN) {
                     intent = new Intent(SeafileAuthenticatorActivity.this, SingleSignOnActivity.class);
                     intent.putExtras(getIntent());
@@ -138,33 +122,30 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
 
 
                 if (intent != null) {
-                    SLogs.d(DEBUG_TAG, "launch child activity from chooser, optionId=" + id + ", target=" + intent.getComponent());
                     activityLauncher.launch(intent);
                 }
 
             }
         });
 
-        if (getIntent().getBooleanExtra(ARG_SHIB, false)) {
+        if (getIntent().getBooleanExtra(Constants.AccountKeys.ARG_SHIB, false)) {
 
             Intent intent = new Intent(this, SingleSignOnActivity.class);
-            Account account = new Account(getIntent().getStringExtra(SeafileAuthenticatorActivity.ARG_ACCOUNT_NAME), Constants.Account.ACCOUNT_TYPE);
+            Account account = new Account(getIntent().getStringExtra(Constants.AccountKeys.ARG_ACCOUNT_NAME), Constants.Account.ACCOUNT_TYPE);
 
             String serverUrl = SupportAccountManager.getInstance().getUserData(account, Authenticator.KEY_SERVER_URI);
             intent.putExtra(SeafileAuthenticatorActivity.SINGLE_SIGN_ON_SERVER_URL, serverUrl);
             if (getIntent() != null) {
                 intent.putExtras(getIntent().getExtras());
             }
-            SLogs.d(DEBUG_TAG, "auto launch SSO activity, account=" + account.name + ", serverUrl=" + serverUrl);
             activityLauncher.launch(intent);
 
-        } else if (getIntent().getBooleanExtra(ARG_IS_EDITING, false)) {
+        } else if (getIntent().getBooleanExtra(Constants.AccountKeys.ARG_IS_EDITING, false)) {
 
             Intent intent = new Intent(this, AccountDetailActivity.class);
             if (getIntent() != null) {
                 intent.putExtras(getIntent().getExtras());
             }
-            SLogs.d(DEBUG_TAG, "auto launch account detail for editing, account=" + getIntent().getStringExtra(ARG_ACCOUNT_NAME));
             activityLauncher.launch(intent);
         }
 
@@ -235,34 +216,29 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
     private void finishLogin(Intent intent) {
         SLogs.d(DEBUG_TAG, "finishLogin");
 
-        if (intent == null) {
-            SLogs.w(DEBUG_TAG, "finishLogin received null intent, finishing authenticator activity");
-            finish();
-            return;
-        }
-
         String newAccountName = intent.getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
         String accountType = intent.getStringExtra(AccountManager.KEY_ACCOUNT_TYPE);
         String authToken = intent.getStringExtra(AccountManager.KEY_AUTHTOKEN);
         if (TextUtils.isEmpty(newAccountName) || TextUtils.isEmpty(accountType) || TextUtils.isEmpty(authToken)) {
-            SLogs.w(DEBUG_TAG, "finishLogin missing required auth result, accountName=" + newAccountName + ", accountType=" + accountType + ", hasAuthToken=" + !TextUtils.isEmpty(authToken));
             finish();
             return;
         }
 
-        String avatarUrl = intent.getStringExtra(ARG_AVATAR_URL);
-        String email = intent.getStringExtra(ARG_EMAIL);
-        String name = intent.getStringExtra(ARG_NAME);
-        String sessionKey = intent.getStringExtra(ARG_AUTH_SESSION_KEY);
-        String serverUri = intent.getStringExtra(ARG_SERVER_URI);
-        boolean shib = intent.getBooleanExtra(ARG_SHIB, false);
-        long totalSpace = intent.getLongExtra(SeafileAuthenticatorActivity.ARG_SPACE_TOTAL, 0L);
-        long usageSpace = intent.getLongExtra(SeafileAuthenticatorActivity.ARG_SPACE_USAGE, 0L);
+        String avatarUrl = intent.getStringExtra(Constants.AccountKeys.ARG_AVATAR_URL);
+        String email = intent.getStringExtra(Constants.AccountKeys.ARG_EMAIL);
+        String contactEmail = intent.getStringExtra(Constants.AccountKeys.ARG_CONTACT_EMAIL);
+        String name = intent.getStringExtra(Constants.AccountKeys.ARG_NAME);
+        String sessionKey = intent.getStringExtra(Constants.AccountKeys.ARG_AUTH_SESSION_KEY);
+        String serverUri = intent.getStringExtra(Constants.AccountKeys.ARG_SERVER_URI);
+        boolean shib = intent.getBooleanExtra(Constants.AccountKeys.ARG_SHIB, false);
+        long totalSpace = intent.getLongExtra(Constants.AccountKeys.ARG_SPACE_TOTAL, 0L);
+        long usageSpace = intent.getLongExtra(Constants.AccountKeys.ARG_SPACE_USAGE, 0L);
 
         Bundle bundle = new Bundle();
         bundle.putBoolean(Authenticator.KEY_SHIB, shib);
         bundle.putString(Authenticator.KEY_SERVER_URI, serverUri);
         bundle.putString(Authenticator.KEY_EMAIL, email);
+        bundle.putString(Authenticator.KEY_CONTACT_EMAIL, contactEmail);
         bundle.putString(Authenticator.KEY_NAME, name);
         bundle.putString(Authenticator.KEY_AVATAR_URL, avatarUrl);
         bundle.putString(Authenticator.SESSION_KEY, sessionKey);
@@ -272,13 +248,12 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
 
 
         //new android account
-        final Account newAccount = new Account(newAccountName, accountType);
-        SLogs.d(DEBUG_TAG, "persist new account, accountName=" + newAccountName + ", accountType=" + accountType + ", serverUri=" + serverUri + ", shib=" + shib);
+        final android.accounts.Account androidAccount = new android.accounts.Account(newAccountName, accountType);
         //add account
-        SupportAccountManager.getInstance().addAccountExplicitly(newAccount, null, bundle);
-        SupportAccountManager.getInstance().setAuthToken(newAccount, Authenticator.AUTHTOKEN_TYPE, authToken);
+        SupportAccountManager.getInstance().addAccountExplicitly(androidAccount, null, bundle);
+        SupportAccountManager.getInstance().updateAuthToken(androidAccount, Authenticator.AUTHTOKEN_TYPE, authToken);
         if (shib) {
-            SupportAccountManager.getInstance().setUserData(newAccount, Authenticator.KEY_SHIB, "shib");
+            SupportAccountManager.getInstance().updateShib(androidAccount, "shib");
         }
 
         // clear context stack
@@ -298,7 +273,6 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
         Bundle result = new Bundle();
         result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, true);
         result.putString(AccountManager.KEY_ACCOUNT_NAME, newAccountName);
-        SLogs.d(DEBUG_TAG, "set authenticator success result, accountName=" + newAccountName);
         setAccountAuthenticatorResult(result);
         setResult(RESULT_OK, intent);
         finish();
