@@ -7,16 +7,18 @@ import android.util.Pair;
 
 import com.seafile.seadroid2.SeafException;
 
-import org.spongycastle.crypto.PBEParametersGenerator;
-import org.spongycastle.crypto.digests.SHA256Digest;
-import org.spongycastle.crypto.generators.PKCS5S2ParametersGenerator;
-import org.spongycastle.crypto.params.KeyParameter;
+import org.bouncycastle.crypto.PBEParametersGenerator;
+import org.bouncycastle.crypto.digests.SHA256Digest;
+import org.bouncycastle.crypto.generators.PKCS5S2ParametersGenerator;
+import org.bouncycastle.crypto.params.KeyParameter;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 import java.io.UnsupportedEncodingException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.Provider;
 import java.security.Security;
 import java.security.spec.InvalidKeySpecException;
 
@@ -29,19 +31,30 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
+ * <p>
  * There are a few ways to derive keys, but most of them are not particularly secure.
  * To ensure encryption keys are both sufficiently random and hard to brute force, we should use standard PBE key derivation methods.
  * Other Seafile platforms, e.g, server side, using PBKDF2WithHmacSHA256 to derive a key/iv pair from the password,
  * using AES 256/CBC to encrypt the data.
- * <p/>
- * Unfortunately, Android SDK doesn`t support PBKDF2WithHmacSHA256, so we use Spongy Castle, which is the stock Bouncy Castle libraries with a couple of small changes to make it work on Android.
- * For version 1.47 or higher of SpongyCastle, we can invoke PBKDF2WithHmacSHA256 directly,
- * but for versions below 1.47, we could not specify SHA256 digest and it defaulted to SHA1.
- * see
- * 1. https://rtyley.github.io/spongycastle/
- * 2. http://stackoverflow.com/a/15303291/3962551
- * 3. https://en.wikipedia.org/wiki/Bouncy_Castle_(cryptography)
+ * </p>
+ * <p>
+ * Updated at: 2026-07-07
+ * Seafile derives encryption keys using PBKDF2-HMAC-SHA256.
+ * The current Android implementation uses BouncyCastle to keep the
+ * derived key material consistent with other Seafile clients.
+ * All PBKDF2 operations are encapsulated in the pbkdf2() helper so that
+ * the implementation can later be migrated to the standard JCA
+ * SecretKeyFactory without changing higher-level encryption logic.
+ * </p>
+ * <p>
+ * see:
+ * </p>
+ * 1. <a href="https://rtyley.github.io/spongycastle/">https://rtyley.github.io/spongycastle/</a><br>
+ * 2. <a href="http://stackoverflow.com/a/15303291/3962551">http://stackoverflow.com/a/15303291/3962551</a><br>
+ * 3. <a href="https://en.wikipedia.org/wiki/Bouncy_Castle_(cryptography)">https://en.wikipedia.org/wiki/Bouncy_Castle_(cryptography)</a><br>
+ * 4. <a href="https://www.bouncycastle.org/">https://www.bouncycastle.org/</a><br>
  */
+@Deprecated
 public class Crypto {
     private static final String TAG = Crypto.class.getSimpleName();
 
@@ -56,10 +69,25 @@ public class Crypto {
 
     static {
         // http://stackoverflow.com/questions/6898801/how-to-include-the-spongy-castle-jar-in-android
-        Security.insertProviderAt(new org.spongycastle.jce.provider.BouncyCastleProvider(), 1);
+        Provider provider = Security.getProvider("BC");
+        if (provider == null || !provider.getClass().equals(BouncyCastleProvider.class)) {
+            Security.removeProvider("BC");
+            Security.insertProviderAt(new BouncyCastleProvider(), 1);
+        }
     }
 
     private Crypto() {
+    }
+
+    /**
+     * Single abstraction point for PBKDF2 key derivation using BouncyCastle.
+     * This method can later be migrated to use the standard JCA SecretKeyFactory
+     * implementation without affecting higher-level encryption logic.
+     */
+    private static byte[] pbkdf2(@NonNull byte[] input,final int iterations,final int keyLengthBytes) {
+        PKCS5S2ParametersGenerator gen = new PKCS5S2ParametersGenerator(new SHA256Digest());
+        gen.init(input, salt, iterations);
+        return ((KeyParameter) gen.generateDerivedMacParameters(keyLengthBytes * 8)).getKey();
     }
 
     /**
@@ -144,9 +172,10 @@ public class Crypto {
      * @throws NoSuchAlgorithmException
      */
     private static byte[] deriveKey(@NonNull String password, int version) throws UnsupportedEncodingException, NoSuchAlgorithmException {
-        PKCS5S2ParametersGenerator gen = new PKCS5S2ParametersGenerator(new SHA256Digest());
-        gen.init(PBEParametersGenerator.PKCS5PasswordToUTF8Bytes(password.toCharArray()), salt, ITERATION_COUNT);
-        return ((KeyParameter) gen.generateDerivedMacParameters(version == 2 ? KEY_LENGTH * 8 : KEY_LENGTH_SHORT * 8)).getKey();
+        return pbkdf2(
+                PBEParametersGenerator.PKCS5PasswordToUTF8Bytes(password.toCharArray()),
+                ITERATION_COUNT,
+                version == 2 ? KEY_LENGTH : KEY_LENGTH_SHORT);
     }
 
     /**
@@ -160,9 +189,10 @@ public class Crypto {
      */
     private static String deriveKey(@NonNull byte[] fileKey, int version) throws UnsupportedEncodingException, NoSuchAlgorithmException {
         try {
-            PKCS5S2ParametersGenerator gen = new PKCS5S2ParametersGenerator(new SHA256Digest());
-            gen.init(fileKey, salt, ITERATION_COUNT);
-            byte[] keyBytes = ((KeyParameter) gen.generateDerivedMacParameters(version == 2 ? KEY_LENGTH * 8 : KEY_LENGTH_SHORT * 8)).getKey();
+            byte[] keyBytes = pbkdf2(
+                    fileKey,
+                    ITERATION_COUNT,
+                    version == 2 ? KEY_LENGTH : KEY_LENGTH_SHORT);
             return toHex(keyBytes);
         } catch (Exception e) {
             e.printStackTrace();
@@ -178,9 +208,7 @@ public class Crypto {
      * @throws UnsupportedEncodingException
      */
     private static byte[] deriveIv(@NonNull byte[] key) throws UnsupportedEncodingException {
-        PKCS5S2ParametersGenerator gen = new PKCS5S2ParametersGenerator(new SHA256Digest());
-        gen.init(key, salt, 10);
-        return ((KeyParameter) gen.generateDerivedMacParameters(KEY_LENGTH_SHORT * 8)).getKey();
+        return pbkdf2(key, 10, KEY_LENGTH_SHORT);
     }
 
     /**
