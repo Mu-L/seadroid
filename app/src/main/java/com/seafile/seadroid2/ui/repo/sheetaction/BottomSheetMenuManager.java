@@ -396,7 +396,9 @@ public class BottomSheetMenuManager {
         if (selectedList.size() == 1) {
             BaseModel baseModel = selectedList.get(0);
             if (baseModel instanceof RepoModel m) {
-
+                if (m.encrypted){
+                    return CollectionUtils.newArrayList(R.id.share);
+                }
             } else if (baseModel instanceof DirentModel m) {
                 if (m.isDir()) {
                     return CollectionUtils.newArrayList(R.id.export, R.id.open_with, R.id.upload, R.id.save_as,R.id.profile);
@@ -410,7 +412,7 @@ public class BottomSheetMenuManager {
                 .filter(f -> f instanceof RepoModel)
                 .count();
         if (selectedRepoModelCount > 0) {
-            return CollectionUtils.newArrayList(R.id.delete);
+            return CollectionUtils.newArrayList(R.id.delete,R.id.share);
         }
 
         long selectedFolderCount = selectedList.stream()
