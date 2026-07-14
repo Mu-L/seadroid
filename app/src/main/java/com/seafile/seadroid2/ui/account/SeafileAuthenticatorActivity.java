@@ -7,7 +7,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -72,7 +71,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
      */
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        Log.d(DEBUG_TAG, "onCreate");
+        SLogs.d(DEBUG_TAG, "onCreate");
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.account_create_type_select);
@@ -82,7 +81,9 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
         activityLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), new ActivityResultCallback<ActivityResult>() {
             @Override
             public void onActivityResult(ActivityResult o) {
+                SLogs.d(DEBUG_TAG, "activity result returned: result=" + (o == null ? "null" : o.getResultCode()) + ", data=" + (o == null ? "null" : o.getData()));
                 if (o == null) {
+                    SLogs.w(DEBUG_TAG, "child activity returned null result, finishing authenticator activity");
                     finish();
                     return;
                 }
@@ -90,6 +91,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
                 if (o.getResultCode() == RESULT_OK) {
                     finishLogin(o.getData());
                 } else {
+                    SLogs.w(DEBUG_TAG, "child activity did not finish successfully, resultCode=" + o.getResultCode());
                     finish();
                 }
             }
@@ -136,6 +138,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
 
 
                 if (intent != null) {
+                    SLogs.d(DEBUG_TAG, "launch child activity from chooser, optionId=" + id + ", target=" + intent.getComponent());
                     activityLauncher.launch(intent);
                 }
 
@@ -152,6 +155,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
             if (getIntent() != null) {
                 intent.putExtras(getIntent().getExtras());
             }
+            SLogs.d(DEBUG_TAG, "auto launch SSO activity, account=" + account.name + ", serverUrl=" + serverUrl);
             activityLauncher.launch(intent);
 
         } else if (getIntent().getBooleanExtra(ARG_IS_EDITING, false)) {
@@ -160,6 +164,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
             if (getIntent() != null) {
                 intent.putExtras(getIntent().getExtras());
             }
+            SLogs.d(DEBUG_TAG, "auto launch account detail for editing, account=" + getIntent().getStringExtra(ARG_ACCOUNT_NAME));
             activityLauncher.launch(intent);
         }
 
@@ -230,10 +235,17 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
     private void finishLogin(Intent intent) {
         SLogs.d(DEBUG_TAG, "finishLogin");
 
+        if (intent == null) {
+            SLogs.w(DEBUG_TAG, "finishLogin received null intent, finishing authenticator activity");
+            finish();
+            return;
+        }
+
         String newAccountName = intent.getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
         String accountType = intent.getStringExtra(AccountManager.KEY_ACCOUNT_TYPE);
         String authToken = intent.getStringExtra(AccountManager.KEY_AUTHTOKEN);
         if (TextUtils.isEmpty(newAccountName) || TextUtils.isEmpty(accountType) || TextUtils.isEmpty(authToken)) {
+            SLogs.w(DEBUG_TAG, "finishLogin missing required auth result, accountName=" + newAccountName + ", accountType=" + accountType + ", hasAuthToken=" + !TextUtils.isEmpty(authToken));
             finish();
             return;
         }
@@ -261,6 +273,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
 
         //new android account
         final Account newAccount = new Account(newAccountName, accountType);
+        SLogs.d(DEBUG_TAG, "persist new account, accountName=" + newAccountName + ", accountType=" + accountType + ", serverUri=" + serverUri + ", shib=" + shib);
         //add account
         SupportAccountManager.getInstance().addAccountExplicitly(newAccount, null, bundle);
         SupportAccountManager.getInstance().setAuthToken(newAccount, Authenticator.AUTHTOKEN_TYPE, authToken);
@@ -285,6 +298,7 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
         Bundle result = new Bundle();
         result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, true);
         result.putString(AccountManager.KEY_ACCOUNT_NAME, newAccountName);
+        SLogs.d(DEBUG_TAG, "set authenticator success result, accountName=" + newAccountName);
         setAccountAuthenticatorResult(result);
         setResult(RESULT_OK, intent);
         finish();
