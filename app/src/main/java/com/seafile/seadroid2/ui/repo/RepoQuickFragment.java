@@ -1904,41 +1904,43 @@ public class RepoQuickFragment extends BaseFragmentWithVM<RepoViewModel> {
      * Share a file. Generating a file share link and send the link or file to someone
      * through some app.
      */
-    public void showShareDialog(List<BaseModel> dirents) {
-        if (CollectionUtils.isEmpty(dirents)) {
+    public void showShareDialog(List<BaseModel> objs) {
+        if (CollectionUtils.isEmpty(objs)) {
             return;
         }
 
         //close action mode firstly
         closeActionMode();
+        BaseModel baseModel = objs.get(0);
+        if (baseModel instanceof RepoModel repoModel) {
+            WidgetUtils.showRepoShareLinkDialog(requireContext(), getChildFragmentManager(), repoModel);
+        } else if (baseModel instanceof DirentModel direntModel) {
+            MaterialAlertDialogBuilder mBuilder = new MaterialAlertDialogBuilder(requireContext());
 
-        DirentModel direntModel = (DirentModel) dirents.get(0);
+            boolean inChina = Utils.isInChina();
+            String[] strings;
 
-        MaterialAlertDialogBuilder mBuilder = new MaterialAlertDialogBuilder(requireContext());
+            //if user in China, system add WeChat share
+            if (inChina) {
+                strings = getResources().getStringArray(R.array.file_action_share_array_zh);
+            } else {
+                strings = getResources().getStringArray(R.array.file_action_share_array);
+            }
 
-        boolean inChina = Utils.isInChina();
-        String[] strings;
+            mBuilder.setItems(strings, (dialog, which) -> {
+                if (!inChina) {
+                    which++;
+                }
 
-        //if user in China, system add WeChat share
-        if (inChina) {
-            strings = getResources().getStringArray(R.array.file_action_share_array_zh);
-        } else {
-            strings = getResources().getStringArray(R.array.file_action_share_array);
+                if (which == 0) {
+                    shareFile(direntModel);
+                } else if (which == 1) {
+                    WidgetUtils.showCreateShareLinkDialog(requireContext(), getChildFragmentManager(), direntModel, false);
+                } else if (which == 2) {
+                    WidgetUtils.showCreateShareLinkDialog(requireContext(), getChildFragmentManager(), direntModel, true);
+                }
+            }).show();
         }
-
-        mBuilder.setItems(strings, (dialog, which) -> {
-            if (!inChina) {
-                which++;
-            }
-
-            if (which == 0) {
-                shareFile(direntModel);
-            } else if (which == 1) {
-                WidgetUtils.showCreateShareLinkDialog(requireContext(), getChildFragmentManager(), direntModel, false);
-            } else if (which == 2) {
-                WidgetUtils.showCreateShareLinkDialog(requireContext(), getChildFragmentManager(), direntModel, true);
-            }
-        }).show();
     }
 
     private void shareFile(DirentModel dirent) {
