@@ -107,15 +107,13 @@ import com.seafile.seadroid2.ui.media.player.CustomExoVideoPlayerActivity;
 import com.seafile.seadroid2.ui.office_doc.OfficeDocumentWebActivity;
 import com.seafile.seadroid2.ui.repo.sheetaction.BottomSheetActionView;
 import com.seafile.seadroid2.ui.repo.sheetaction.BottomSheetMenuManager;
-import com.seafile.seadroid2.ui.repo.sort.SortPopupWindow;
 import com.seafile.seadroid2.ui.sdoc.SDocWebViewActivity;
-import com.seafile.seadroid2.ui.selector.versatile.VersatileSelectorActivity;
+import com.seafile.seadroid2.ui.selector.OpSelectorActivity;
 import com.seafile.seadroid2.ui.star.StarredQuickFragment;
 import com.seafile.seadroid2.view.TipsViews;
 import com.seafile.seadroid2.view.ViewSortPopupWindow;
 
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.lang3.StringUtils;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -2106,7 +2104,7 @@ public class RepoQuickFragment extends BaseFragmentWithVM<RepoViewModel> {
      */
     private void chooseCopyMoveDestForMultiFiles(String repoID, String repoName,
                                                  String dirPath, List<BaseModel> models,
-                                                 OpType op) {
+                                                 OpType opType) {
         closeActionMode();
 
         if (CollectionUtils.isEmpty(models)) {
@@ -2128,14 +2126,16 @@ public class RepoQuickFragment extends BaseFragmentWithVM<RepoViewModel> {
                 .collect(Collectors.toList());
 
 
-        copyMoveContext = new CopyMoveContext(repoID, repoName, dirPath, ds, op);
+        copyMoveContext = new CopyMoveContext(repoID, repoName, dirPath, ds, opType);
 
         String fileName = null;
         if (ds.size() == 1) {
             fileName = ds.get(0).name;
         }
 
-        Intent intent = VersatileSelectorActivity.getCurrentAccountIntent(requireContext(), repoID, dirPath, fileName, op == OpType.COPY);
+        OpSelectorActivity.OpSelectorType opSelectorType = opType == OpType.COPY ? OpSelectorActivity.OpSelectorType.COPY : OpSelectorActivity.OpSelectorType.MOVE;
+
+        Intent intent = OpSelectorActivity.getCurrentAccountIntent(requireContext(), repoID, dirPath, fileName, opSelectorType);
         copyMoveLauncher.launch(intent);
     }
 
