@@ -2,10 +2,11 @@ package com.seafile.seadroid2.ui.account;
 
 import android.accounts.AccountManagerCallback;
 import android.accounts.AccountManagerFuture;
+import android.accounts.AuthenticatorException;
 import android.accounts.OnAccountsUpdateListener;
 import android.content.Intent;
 import android.os.Bundle;
-import android.util.Log;
+import android.os.OperationCanceledException;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
 import android.view.MenuItem;
@@ -25,6 +26,8 @@ import com.seafile.seadroid2.framework.model.ServerInfo;
 import com.seafile.seadroid2.framework.datastore.sp.AppDataManager;
 import com.seafile.seadroid2.account.AccountUtils;
 import com.seafile.seadroid2.framework.service.BackupThreadExecutor;
+import com.seafile.seadroid2.framework.util.SLogs;
+import com.seafile.seadroid2.framework.util.Toasts;
 import com.seafile.seadroid2.listener.OnCallback;
 import com.seafile.seadroid2.ui.SplashActivity;
 import com.seafile.seadroid2.ui.base.BaseActivityWithVM;
@@ -53,6 +56,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     private final OnAccountsUpdateListener accountsUpdateListener = new OnAccountsUpdateListener() {
         @Override
         public void onAccountsUpdated(android.accounts.Account[] accounts) {
+            SLogs.d(DEBUG_TAG, "system accounts updated, count=" + (accounts == null ? -1 : accounts.length));
             refreshView();
         }
     };
@@ -62,27 +66,37 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
 
         @Override
         public void run(AccountManagerFuture<Bundle> future) {
-            if (future.isCancelled())
+            if (future.isCancelled()) {
+                SLogs.d(DEBUG_TAG, "account add/update flow was cancelled before result delivery");
                 return;
+            }
 
             try {
+                SLogs.d(DEBUG_TAG, "waiting account add/update result");
                 Bundle b = future.getResult();
+                SLogs.d(DEBUG_TAG, "received account add/update result bundle=" + b);
 
                 if (b.getBoolean(android.accounts.AccountManager.KEY_BOOLEAN_RESULT)) {
                     String accountName = b.getString(android.accounts.AccountManager.KEY_ACCOUNT_NAME);
-                    Log.d(DEBUG_TAG, "switching to account " + accountName);
+                    SLogs.d(DEBUG_TAG, "switching to account " + accountName);
                     SupportAccountManager.getInstance().saveCurrentAccount(accountName);
                     startFilesActivity();
+                } else {
+                    SLogs.d(DEBUG_TAG, "account add/update finished without success result: " + b);
                 }
+            } catch (OperationCanceledException e) {
+                SLogs.e(DEBUG_TAG, "account add/update was cancelled", e);
+            } catch (AuthenticatorException e) {
+                SLogs.e(DEBUG_TAG, "account add/update authenticator error", e);
             } catch (Exception e) {
-                Log.e(DEBUG_TAG, "unexpected error: " + e);
+                SLogs.e(DEBUG_TAG, "account add/update unexpected error", e);
             }
         }
     };
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        Log.d(DEBUG_TAG, "AccountsActivity.onCreate is called");
+        SLogs.d(DEBUG_TAG, "AccountsActivity.onCreate is called");
         super.onCreate(savedInstanceState);
 
         binding = StartBinding.inflate(getLayoutInflater());
@@ -96,6 +110,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
 
         accounts = SupportAccountManager.getInstance().getAccountList();
         currentDefaultAccount = SupportAccountManager.getInstance().getCurrentAccount();
+        SLogs.d(DEBUG_TAG, "loaded accounts on create, accountCount=" + (accounts == null ? -1 : accounts.size()) + ", currentDefaultAccount=" + (currentDefaultAccount == null ? "null" : currentDefaultAccount.getSignature()));
 
         registerForContextMenu(binding.accountListView);
 
@@ -129,6 +144,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
         addAccount.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View btn) {
+                SLogs.d(DEBUG_TAG, "add account clicked, accountType=" + Constants.Account.ACCOUNT_TYPE + ", authTokenType=" + Authenticator.AUTHTOKEN_TYPE);
                 mAccountManager.addAccount(Constants.Account.ACCOUNT_TYPE,
                         Authenticator.AUTHTOKEN_TYPE, null, null,
                         AccountsActivity.this, accountCallback, null);
@@ -188,6 +204,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     private void onListItemClick(int position) {
         Account clickedAccount = accounts.get(position);
         Account loggedAccount = SupportAccountManager.getInstance().getCurrentAccount();
+        SLogs.d(DEBUG_TAG, "account item clicked, position=" + position + ", clickedAccount=" + clickedAccount + ", loggedAccount=" + loggedAccount);
         if (clickedAccount.is_checked && loggedAccount != null) {
             finish();
             return;
@@ -202,6 +219,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     }
 
     private void switchAccount(Account clickedAccount) {
+        SLogs.d(DEBUG_TAG, "switchAccount called, account=" + clickedAccount + ", hasValidToken=" + clickedAccount.hasValidToken());
         if (!clickedAccount.hasValidToken()) {
             // user already signed out, input password first
             startEditAccountActivity(clickedAccount);
@@ -230,7 +248,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
 
     @Override
     public void onDestroy() {
-        Log.d(DEBUG_TAG, "onDestroy");
+        SLogs.d(DEBUG_TAG, "onDestroy");
         super.onDestroy();
 
         mAccountManager.removeOnAccountsUpdatedListener(accountsUpdateListener);
@@ -240,7 +258,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     // it will be shown.
     @Override
     public void onResume() {
-        Log.d(DEBUG_TAG, "onResume");
+        SLogs.d(DEBUG_TAG, "onResume");
         super.onResume();
 
         refreshView();
@@ -262,13 +280,14 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     }
 
     private void refreshView() {
-        Log.d(DEBUG_TAG, "refreshView");
+        SLogs.d(DEBUG_TAG, "refreshView");
         accounts = SupportAccountManager.getInstance().getAccountList();
         adapter.clear();
         adapter.setItems(accounts);
         adapter.notifyChanged();
 
         Account newCurrentAccount = SupportAccountManager.getInstance().getCurrentAccount();
+        SLogs.d(DEBUG_TAG, "refreshView loaded accounts, accountCount=" + (accounts == null ? -1 : accounts.size()) + ", currentAccount=" + (newCurrentAccount == null ? "null" : newCurrentAccount.getSignature()));
 
         // updates toolbar back button
         if (newCurrentAccount == null || !newCurrentAccount.hasValidToken()) {
@@ -286,10 +305,12 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     }
 
     private void startFilesActivity() {
+        SLogs.d(DEBUG_TAG, "startFilesActivity requested, fetching server info");
         getViewModel().getServerInfo();
     }
 
     private void startEditAccountActivity(Account account) {
+        SLogs.d(DEBUG_TAG, "startEditAccountActivity, account=" + account + ", authTokenType=" + Authenticator.AUTHTOKEN_TYPE);
         mAccountManager.updateCredentials(account.getAndroidAccount(), Authenticator.AUTHTOKEN_TYPE, null, this, accountCallback, null);
     }
 

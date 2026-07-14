@@ -272,12 +272,14 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel> 
 
     @Override
     public void onDestroy() {
+        SLogs.d(DEBUG_TAG, "onDestroy");
         dismissLoadingDialog();
         super.onDestroy();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle savedInstanceState) {
+        SLogs.d(DEBUG_TAG, "onSaveInstanceState");
         savedInstanceState.putString("email", binding.emailAddress.getText().toString());
         savedInstanceState.putString("password", binding.password.getText().toString());
         savedInstanceState.putBoolean("rememberDevice", binding.rememberDevice.isChecked());
@@ -287,6 +289,8 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel> 
     @Override
     protected void onRestoreInstanceState(Bundle savedInstanceState) {
         super.onRestoreInstanceState(savedInstanceState);
+
+        SLogs.d(DEBUG_TAG, "onRestoreInstanceState");
 
         binding.emailAddress.setText((String) savedInstanceState.get("email"));
         binding.password.setText((String) savedInstanceState.get("password"));
@@ -302,7 +306,8 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel> 
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
             case android.R.id.home:
-
+                SLogs.d(DEBUG_TAG, "initPrefLiveData, onOptionsItemSelected, home");
+                
                 /* FYI {@link http://stackoverflow.com/questions/13293772/how-to-navigate-up-to-the-same-parent-state?rq=1} */
                 Intent upIntent = new Intent(this, AccountsActivity.class);
                 if (NavUtils.shouldUpRecreateTask(this, upIntent)) {
@@ -331,7 +336,7 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel> 
         binding.serverUrl.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
-                Log.d(DEBUG_TAG, "serverText has focus: " + (hasFocus ? "yes" : "no"));
+                SLogs.d(DEBUG_TAG, "serverText has focus: " + (hasFocus ? "yes" : "no"));
                 serverTextHasFocus = hasFocus;
             }
         });
@@ -409,7 +414,7 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel> 
             serverURL = Utils.cleanServerURL(serverURL);
         } catch (MalformedURLException | URISyntaxException e) {
             binding.statusView.setText(R.string.invalid_server_address);
-            Log.d(DEBUG_TAG, "Invalid URL " + serverURL);
+            SLogs.d(DEBUG_TAG, "Invalid URL " + serverURL);
             return;
         }
 
