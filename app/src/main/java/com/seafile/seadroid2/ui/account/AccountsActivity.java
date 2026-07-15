@@ -347,7 +347,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
             account = adapter.getItem((int) info.id);
 
             getViewModel().deleteAccount(account);
-            Log.d(DEBUG_TAG, "removing account " + account);
+            SLogs.d(DEBUG_TAG, "removing account = " + account);
             return true;
         }
         return super.onContextItemSelected(item);
