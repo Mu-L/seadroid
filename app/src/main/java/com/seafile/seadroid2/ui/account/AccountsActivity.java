@@ -2,11 +2,11 @@ package com.seafile.seadroid2.ui.account;
 
 import android.accounts.AccountManagerCallback;
 import android.accounts.AccountManagerFuture;
-import android.accounts.AuthenticatorException;
 import android.accounts.OnAccountsUpdateListener;
 import android.content.Intent;
 import android.os.Bundle;
-import android.os.OperationCanceledException;
+import android.util.Log;
+import android.util.Pair;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
 import android.view.MenuItem;
@@ -21,12 +21,12 @@ import androidx.lifecycle.Observer;
 import com.blankj.utilcode.util.ActivityUtils;
 import com.blankj.utilcode.util.AppUtils;
 import com.seafile.seadroid2.R;
+import com.seafile.seadroid2.SeafException;
 import com.seafile.seadroid2.databinding.StartBinding;
 import com.seafile.seadroid2.framework.model.ServerInfo;
 import com.seafile.seadroid2.framework.datastore.sp.AppDataManager;
 import com.seafile.seadroid2.account.AccountUtils;
 import com.seafile.seadroid2.framework.service.BackupThreadExecutor;
-import com.seafile.seadroid2.framework.util.SLogs;
 import com.seafile.seadroid2.framework.util.Toasts;
 import com.seafile.seadroid2.listener.OnCallback;
 import com.seafile.seadroid2.ui.SplashActivity;
@@ -44,6 +44,8 @@ import com.seafile.seadroid2.ui.main.MainActivity;
 import java.util.List;
 import java.util.Locale;
 
+import io.reactivex.functions.Consumer;
+
 public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> implements Toolbar.OnMenuItemClickListener {
     private static final String DEBUG_TAG = "AccountsActivity";
     public static final int DETAIL_ACTIVITY_REQUEST = 1;
@@ -56,7 +58,6 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     private final OnAccountsUpdateListener accountsUpdateListener = new OnAccountsUpdateListener() {
         @Override
         public void onAccountsUpdated(android.accounts.Account[] accounts) {
-            SLogs.d(DEBUG_TAG, "system accounts updated, count=" + (accounts == null ? -1 : accounts.length));
             refreshView();
         }
     };
@@ -66,37 +67,27 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
 
         @Override
         public void run(AccountManagerFuture<Bundle> future) {
-            if (future.isCancelled()) {
-                SLogs.d(DEBUG_TAG, "account add/update flow was cancelled before result delivery");
+            if (future.isCancelled())
                 return;
-            }
 
             try {
-                SLogs.d(DEBUG_TAG, "waiting account add/update result");
                 Bundle b = future.getResult();
-                SLogs.d(DEBUG_TAG, "received account add/update result bundle=" + b);
 
                 if (b.getBoolean(android.accounts.AccountManager.KEY_BOOLEAN_RESULT)) {
                     String accountName = b.getString(android.accounts.AccountManager.KEY_ACCOUNT_NAME);
-                    SLogs.d(DEBUG_TAG, "switching to account " + accountName);
+                    Log.d(DEBUG_TAG, "switching to account " + accountName);
                     SupportAccountManager.getInstance().saveCurrentAccount(accountName);
-                    startFilesActivity();
-                } else {
-                    SLogs.d(DEBUG_TAG, "account add/update finished without success result: " + b);
+                    requestAccountInfo();
                 }
-            } catch (OperationCanceledException e) {
-                SLogs.e(DEBUG_TAG, "account add/update was cancelled", e);
-            } catch (AuthenticatorException e) {
-                SLogs.e(DEBUG_TAG, "account add/update authenticator error", e);
             } catch (Exception e) {
-                SLogs.e(DEBUG_TAG, "account add/update unexpected error", e);
+                Log.e(DEBUG_TAG, "unexpected error: " + e);
             }
         }
     };
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        SLogs.d(DEBUG_TAG, "AccountsActivity.onCreate is called");
+        Log.d(DEBUG_TAG, "AccountsActivity.onCreate is called");
         super.onCreate(savedInstanceState);
 
         binding = StartBinding.inflate(getLayoutInflater());
@@ -110,7 +101,6 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
 
         accounts = SupportAccountManager.getInstance().getAccountList();
         currentDefaultAccount = SupportAccountManager.getInstance().getCurrentAccount();
-        SLogs.d(DEBUG_TAG, "loaded accounts on create, accountCount=" + (accounts == null ? -1 : accounts.size()) + ", currentDefaultAccount=" + (currentDefaultAccount == null ? "null" : currentDefaultAccount.getSignature()));
 
         registerForContextMenu(binding.accountListView);
 
@@ -140,11 +130,10 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
 
         View footerView = getLayoutInflater().inflate(R.layout.account_list_footer, null, false);
 
-        Button addAccount = (Button) footerView.findViewById(R.id.account_footer_btn);
+        Button addAccount = footerView.findViewById(R.id.account_footer_btn);
         addAccount.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View btn) {
-                SLogs.d(DEBUG_TAG, "add account clicked, accountType=" + Constants.Account.ACCOUNT_TYPE + ", authTokenType=" + Authenticator.AUTHTOKEN_TYPE);
                 mAccountManager.addAccount(Constants.Account.ACCOUNT_TYPE,
                         Authenticator.AUTHTOKEN_TYPE, null, null,
                         AccountsActivity.this, accountCallback, null);
@@ -187,16 +176,20 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
             }
         });
 
-        getViewModel().getServerInfoLiveData().observe(this, new Observer<ServerInfo>() {
+        getViewModel().getRequestAccountResultData().observe(this, new Observer<Pair<Account, SeafException>>() {
             @Override
-            public void onChanged(ServerInfo serverInfo) {
-                //finish main firstly
-                ActivityUtils.finishActivity(MainActivity.class);
+            public void onChanged(Pair<Account, SeafException> pair) {
+                if (pair.second == SeafException.SUCCESS) {
+                    //finish main firstly
+                    ActivityUtils.finishActivity(MainActivity.class);
 
-                //start splash
-                startActivity(new Intent(AccountsActivity.this, SplashActivity.class));
-                finish();
-                overridePendingTransition(R.anim.fade_in, R.anim.fade_out);
+                    //start splash
+                    startActivity(new Intent(AccountsActivity.this, SplashActivity.class));
+                    finish();
+                    overridePendingTransition(R.anim.fade_in, R.anim.fade_out);
+                } else {
+                    Toasts.show(pair.second.getMessage());
+                }
             }
         });
     }
@@ -204,7 +197,6 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     private void onListItemClick(int position) {
         Account clickedAccount = accounts.get(position);
         Account loggedAccount = SupportAccountManager.getInstance().getCurrentAccount();
-        SLogs.d(DEBUG_TAG, "account item clicked, position=" + position + ", clickedAccount=" + clickedAccount + ", loggedAccount=" + loggedAccount);
         if (clickedAccount.is_checked && loggedAccount != null) {
             finish();
             return;
@@ -219,19 +211,17 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     }
 
     private void switchAccount(Account clickedAccount) {
-        SLogs.d(DEBUG_TAG, "switchAccount called, account=" + clickedAccount + ", hasValidToken=" + clickedAccount.hasValidToken());
         if (!clickedAccount.hasValidToken()) {
             // user already signed out, input password first
             startEditAccountActivity(clickedAccount);
         } else {
 
-            //save
+            // switch to clicked account first
             SupportAccountManager.getInstance().saveCurrentAccount(clickedAccount.getSignature());
-
-            //switch account
             AccountUtils.switchAccount(clickedAccount);
 
-            startFilesActivity();
+            // then load account info
+            requestAccountInfo();
         }
     }
 
@@ -248,7 +238,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
 
     @Override
     public void onDestroy() {
-        SLogs.d(DEBUG_TAG, "onDestroy");
+        Log.d(DEBUG_TAG, "onDestroy");
         super.onDestroy();
 
         mAccountManager.removeOnAccountsUpdatedListener(accountsUpdateListener);
@@ -258,7 +248,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     // it will be shown.
     @Override
     public void onResume() {
-        SLogs.d(DEBUG_TAG, "onResume");
+        Log.d(DEBUG_TAG, "onResume");
         super.onResume();
 
         refreshView();
@@ -280,14 +270,13 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
     }
 
     private void refreshView() {
-        SLogs.d(DEBUG_TAG, "refreshView");
+        Log.d(DEBUG_TAG, "refreshView");
         accounts = SupportAccountManager.getInstance().getAccountList();
         adapter.clear();
         adapter.setItems(accounts);
         adapter.notifyChanged();
 
         Account newCurrentAccount = SupportAccountManager.getInstance().getCurrentAccount();
-        SLogs.d(DEBUG_TAG, "refreshView loaded accounts, accountCount=" + (accounts == null ? -1 : accounts.size()) + ", currentAccount=" + (newCurrentAccount == null ? "null" : newCurrentAccount.getSignature()));
 
         // updates toolbar back button
         if (newCurrentAccount == null || !newCurrentAccount.hasValidToken()) {
@@ -296,21 +285,13 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
             //close main activity
             ActivityUtils.finishActivity(MainActivity.class);
         }
-
-//        // if the user switched default account while we were in background,
-//        // switch to BrowserActivity
-//        if (newCurrentAccount != null && !newCurrentAccount.equals(currentDefaultAccount)) {
-//            startFilesActivity();
-//        }
     }
 
-    private void startFilesActivity() {
-        SLogs.d(DEBUG_TAG, "startFilesActivity requested, fetching server info");
-        getViewModel().getServerInfo();
+    private void requestAccountInfo() {
+        getViewModel().syncAccountAndServerInfo();
     }
 
     private void startEditAccountActivity(Account account) {
-        SLogs.d(DEBUG_TAG, "startEditAccountActivity, account=" + account + ", authTokenType=" + Authenticator.AUTHTOKEN_TYPE);
         mAccountManager.updateCredentials(account.getAndroidAccount(), Authenticator.AUTHTOKEN_TYPE, null, this, accountCallback, null);
     }
 
@@ -320,7 +301,7 @@ public class AccountsActivity extends BaseActivityWithVM<AccountViewModel> imple
         switch (requestCode) {
             case DETAIL_ACTIVITY_REQUEST:
                 if (resultCode == RESULT_OK) {
-                    startFilesActivity();
+                    requestAccountInfo();
                 }
                 break;
             default:
