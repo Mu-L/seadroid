@@ -26,6 +26,7 @@ import com.seafile.seadroid2.account.Account;
 import com.seafile.seadroid2.account.Authenticator;
 import com.seafile.seadroid2.config.Constants;
 import com.seafile.seadroid2.databinding.AccountDetailBinding;
+import com.seafile.seadroid2.framework.util.SLogs;
 import com.seafile.seadroid2.framework.util.Utils;
 import com.seafile.seadroid2.ssl.CertsManager;
 import com.seafile.seadroid2.ui.base.BaseActivityWithVM;
